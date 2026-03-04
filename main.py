@@ -15,13 +15,24 @@ dp = Dispatcher(bot)
 # БАЗА ДАННЫХ
 users_db = {} 
 
-# МЕНЮ
+# --- МЕНЮ (СПИСОК ФЛАГОВ) ---
 def get_lang_menu():
     menu = ReplyKeyboardMarkup(resize_keyboard=True)
     menu.add(KeyboardButton('🇷🇺 Русский'), KeyboardButton('🇬🇧 English'), KeyboardButton('🇳🇱 Nederlands'))
     return menu
 
-# КОМАНДА /START
+# --- НОВОЕ ГЛАВНОЕ МЕНЮ (ПОЯВЛЯЕТСЯ ПОСЛЕ ВЫБОРА ЯЗЫКА) ---
+def get_main_menu(lang):
+    menu = ReplyKeyboardMarkup(resize_keyboard=True)
+    if lang == '🇷🇺 Русский':
+        menu.add(KeyboardButton('⚙️ Настройки языка'), KeyboardButton('🏠 Моя подписка'))
+    elif lang == '🇬🇧 English':
+        menu.add(KeyboardButton('⚙️ Language Settings'), KeyboardButton('🏠 My Subscription'))
+    else: # Dutch
+        menu.add(KeyboardButton('⚙️ Instellingen'), KeyboardButton('🏠 Mijn abonnement'))
+    return menu
+
+# КОМАНДА /START (ОСТАВЛЯЕМ КАК ЕСТЬ)
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
     user_id = message.from_user.id
@@ -36,14 +47,27 @@ async def start_cmd(message: types.Message):
         reply_markup=get_lang_menu()
     )
 
-# 1. ОБЩАЯ ОБРАБОТКА ЯЗЫКА (Для всех)
+# --- ОБНОВЛЕННАЯ ОБРАБОТКА ВЫБОРА ЯЗЫКА ---
 @dp.message_handler(lambda message: message.text in ['🇷🇺 Русский', '🇬🇧 English', '🇳🇱 Nederlands'])
 async def set_lang(message: types.Message):
     user_id = message.from_user.id
+    lang_choice = message.text
+    
     if user_id not in users_db:
         users_db[user_id] = {}
-    users_db[user_id]['lang'] = message.text
-    await message.answer(f"Success! Language set to {message.text}", reply_markup=types.ReplyKeyboardRemove())
+    users_db[user_id]['lang'] = lang_choice
+    
+    # Тексты подтверждения
+    msg = "Язык установлен! 🇷🇺" if lang_choice == '🇷🇺 Русский' else "Language set! 🇬🇧"
+    if lang_choice == '🇳🇱 Nederlands': msg = "Taal ingesteld! 🇳🇱"
+    
+    # Отправляем подтверждение и ГЛАВНОЕ МЕНЮ (теперь кнопки не исчезнут!)
+    await message.answer(msg, reply_markup=get_main_menu(lang_choice))
+
+# ОБРАБОТКА КНОПКИ "НАСТРОЙКИ ЯЗЫКА" (Чтобы возвращались флаги)
+@dp.message_handler(lambda message: any(x in message.text for x in ["Настройки", "Settings", "Instellingen"]))
+async def settings_btn(message: types.Message):
+    await message.answer("Select language / Выберите язык:", reply_markup=get_lang_menu())
 
 # 2. АДМИН-ПАНЕЛЬ (Только для тебя и НЕ для кнопок языка)
 @dp.message_handler(lambda message: message.from_user.id == ADMIN_ID)
