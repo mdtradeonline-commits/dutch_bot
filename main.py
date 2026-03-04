@@ -5,7 +5,7 @@ import pytz # библиотека для часовых поясов
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-API_TOKEN = '646275203:AAFenGqJIBpvk1DXrbBqDIOPiOILz3Zyllg'
+API_TOKEN = '8646275203:AAFenGqJIBpvk1DXrbBqDIOPiOILz3Zyllg'
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
