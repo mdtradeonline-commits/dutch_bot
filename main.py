@@ -60,6 +60,12 @@ async def set_lang(message: types.Message):
     }
     
     await message.answer(responses[lang_choice], reply_markup=types.ReplyKeyboardRemove())
-
+# КОМАНДА ДЛЯ СМЕНЫ ЯЗЫКА
+@dp.message_handler(commands=['language', 'lang'])
+async def change_language(message: types.Message):
+    await message.answer(
+        "Select language / Выберите язык / Kies taal:",
+        reply_markup=get_lang_menu()
+    )
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
