@@ -24,6 +24,14 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
+@dp.message_handler(commands=['check_net'])
+async def check_net(message: types.Message):
+    try:
+        # Простой запрос к Гуглу, чтобы проверить связь
+        response = requests.get("https://www.google.com", timeout=5)
+        await message.answer(f"Связь с интернетом есть! Код ответа: {response.status_code}")
+    except Exception as e:
+        await message.answer(f"Ошибка связи: {e}")
 # --- 2. РАБОТА С БАЗОЙ ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('housing.db')
