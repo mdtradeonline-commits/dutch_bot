@@ -85,18 +85,23 @@ async def handle_lang(message: types.Message):
 @dp.message_handler(lambda m: m.text in ['🇳🇱 Eindhoven', '🇳🇱 Amsterdam', '🇧🇪 Brussels', '🌍 All NL/BE'])
 async def handle_city(message: types.Message):
     user_id = message.from_user.id
-    # Сохраняем город
+    # 1. Сохраняем город в БД
     add_or_update_user(user_id, city=message.text)
     
-    # Достаем язык из базы (чтобы меню было на нужном языке)
+    # 2. Безопасно достаем язык из БД, чтобы не было ошибки, если он еще не выбран
     conn = sqlite3.connect('housing.db')
     cursor = conn.cursor()
     cursor.execute('SELECT lang FROM users WHERE user_id = ?', (user_id,))
-    lang = cursor.fetchone()[0]
+    result = cursor.fetchone()
+    # Если в базе пусто, ставим английский по умолчанию
+    lang = result[0] if result and result[0] else '🇬🇧 English'
     conn.close()
     
-    # Теперь передаем правильный язык в get_main_menu
-    await message.answer(f"City set to {message.text}! You will receive notifications.", reply_markup=get_main_menu(lang))
+    # 3. Отвечаем пользователю и подгружаем меню на его языке
+    await message.answer(
+        f"City set to {message.text}! You will receive notifications.", 
+        reply_markup=get_main_menu(lang)
+    )
 
 @dp.message_handler(lambda message: message.from_user.id == ADMIN_ID)
 async def admin_msg(message: types.Message):
