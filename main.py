@@ -15,79 +15,91 @@ dp = Dispatcher(bot)
 
 # --- ПАРСЕРЫ ---
 def parse_pararius(city):
-    # Убираем лишние слова для корректной ссылки
-    formatted_city = city.lower().replace("the ", "").replace(" ", "-")
-    url = f"https://www.pararius.com/apartments/{formatted_city}"
+    fmt = city.lower().replace("the ", "").replace(" ", "-")
+    url = f"https://www.pararius.com/apartments/{fmt}"
     scraper = cloudscraper.create_scraper()
     try:
         resp = scraper.get(url, timeout=20)
         soup = BeautifulSoup(resp.text, 'html.parser')
         items = soup.select('h2.listing-search-item__title a')
         res = [f"🏠 {i.text.strip()}\n🔗 https://www.pararius.com{i['href']}" for i in items[:5]]
-        return res if res else ["На Pararius пока пусто."]
-    except Exception as e: 
-        return [f"Ошибка Pararius: {e}"]
+        return res if res else ["На Pararius пусто."]
+    except Exception as e: return [f"Pararius error: {e}"]
+
+def parse_kamernet(city):
+    fmt = city.lower().replace("the ", "").replace(" ", "-")
+    url = f"https://kamernet.nl/en/for-rent/rooms-{fmt}"
+    scraper = cloudscraper.create_scraper()
+    try:
+        resp = scraper.get(url, timeout=20)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select('.room-item-title')
+        res = [f"🎓 {i.text.strip()}" for i in items[:5]]
+        return res if res else ["На Kamernet пусто."]
+    except Exception as e: return [f"Kamernet error: {e}"]
 
 # --- ФОНОВЫЙ МОНИТОРИНГ ---
 seen_links = set()
 
 async def monitor_housing():
-    """Фоновая задача: проверяет Pararius каждые 30 минут"""
     while True:
         try:
-            # Мониторим Эйндховен как основной город
             results = parse_pararius("eindhoven")
             for item in results:
                 if "🔗" in item:
                     link = item.split("🔗 ")[-1]
                     if link not in seen_links:
                         seen_links.add(link)
-                        # Отправка уведомления тебе
-                        await bot.send_message(ADMIN_ID, f"🔔 Новая квартира в Эйндховене:\n{item}")
-        except Exception as e:
-            logging.error(f"Ошибка в мониторинге: {e}")
-        
-        await asyncio.sleep(1800) # 30 минут
+                        await bot.send_message(ADMIN_ID, f"🔔 Новая квартира (Эйндховен):\n{item}")
+        except Exception as e: logging.error(f"Monitor error: {e}")
+        await asyncio.sleep(1800)
 
-# --- ИНТЕРФЕЙС ---
-def get_main_menu():
-    menu = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    menu.add(KeyboardButton('🏠 Pararius (Квартиры)'), KeyboardButton('⚙️ Сменить город'))
-    return menu
+# --- МЕНЮ ---
+def get_lang_menu():
+    m = ReplyKeyboardMarkup(resize_keyboard=True)
+    m.add(KeyboardButton('🇷🇺 Русский'), KeyboardButton('🇬🇧 English'))
+    return m
 
 def get_city_menu():
-    menu = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    cities = ['🇳🇱 Eindhoven', '🇳🇱 Amsterdam', '🇳🇱 Rotterdam', '🇳🇱 The Hague', '🎓 Delft', '🎓 Leiden']
-    for city in cities: menu.add(KeyboardButton(city))
-    return menu
+    m = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    for c in ['🇳🇱 Eindhoven', '🇳🇱 Amsterdam', '🇳🇱 Rotterdam', '🇳🇱 The Hague', '🎓 Delft', '🎓 Leiden']:
+        m.add(KeyboardButton(c))
+    return m
+
+def get_main_menu():
+    m = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    m.add(KeyboardButton('🏠 Pararius'), KeyboardButton('🎓 Kamernet'))
+    m.add(KeyboardButton('⚙️ Сменить город'))
+    return m
 
 user_data = {}
 
+# --- ЛОГИКА ---
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
-    await message.answer("Привет! Выбери город для поиска жилья:", reply_markup=get_city_menu())
+    await message.answer("Выберите язык / Choose language:", reply_markup=get_lang_menu())
+
+@dp.message_handler(lambda m: m.text in ['🇷🇺 Русский', '🇬🇧 English'])
+async def handle_lang(message: types.Message):
+    await message.answer("Язык выбран. Выбери город:", reply_markup=get_city_menu())
 
 @dp.message_handler(lambda m: '🇳🇱' in m.text or '🎓' in m.text)
 async def set_city(message: types.Message):
-    clean_city = message.text.split()[-1]
-    user_data[message.from_user.id] = clean_city
+    user_data[message.from_user.id] = message.text.split()[-1]
     await message.answer(f"Город {message.text} зафиксирован.", reply_markup=get_main_menu())
 
-@dp.message_handler(lambda m: m.text == '🏠 Pararius (Квартиры)')
-async def search_pararius(message: types.Message):
+@dp.message_handler(lambda m: m.text in ['🏠 Pararius', '🎓 Kamernet'])
+async def search_handler(message: types.Message):
     city = user_data.get(message.from_user.id, 'Eindhoven')
-    await message.answer(f"Ищу квартиры в {city}...")
-    res = parse_pararius(city)
+    await message.answer(f"Ищу на {message.text.replace('🏠 ', '').replace('🎓 ', '')}...")
+    res = parse_pararius(city) if 'Pararius' in message.text else parse_kamernet(city)
     await message.answer("\n\n".join(res))
 
 @dp.message_handler(lambda m: m.text == '⚙️ Сменить город')
 async def change_city(message: types.Message):
     await message.answer("Выберите новый город:", reply_markup=get_city_menu())
 
-# --- ЗАПУСК ---
 if __name__ == '__main__':
-    # Запускаем мониторинг в фоне
     loop = asyncio.get_event_loop()
     loop.create_task(monitor_housing())
-    # Запускаем бота
     executor.start_polling(dp, skip_updates=True)
