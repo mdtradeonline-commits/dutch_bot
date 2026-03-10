@@ -80,5 +80,28 @@ async def search_kamernet(message: types.Message):
 async def change_city(message: types.Message):
     await message.answer("Выберите новый город:", reply_markup=get_city_menu())
 
+import asyncio
+
+# --- БАЗА ДАННЫХ ДЛЯ ССЫЛОК (Чтобы не спамить одним и тем же) ---
+seen_links = set()
+
+async def monitor_housing():
+    while True:
+        # Эйндховен для теста
+        results = get_listings("eindhoven") 
+        for item in results:
+            if "🔗" in item:
+                link = item.split("🔗 ")[-1]
+                if link not in seen_links:
+                    seen_links.add(link)
+                    # Шлем тебе в личку (ADMIN_ID — твой ID из начала кода)
+                    await bot.send_message(6999400196, f"🔔 Новая квартира:\n{item}")
+        
+        await asyncio.sleep(1800)  # Пауза 30 минут
+
+# И в самом конце перед запуском:
 if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.create_task(monitor_housing()) # Запускаем фоновый мониторинг
+    executor.start_polling(dp, skip_updates=True)if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
