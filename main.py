@@ -8,9 +8,15 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from mollie.api.client import Client
 from bs4 import BeautifulSoup
 
-# --- Инициализация объектов ---
-# Берем данные из переменных окружения (вкладка Variables в Railway)
-BOT = Bot(token=os.getenv("TELEGRAM_TOKEN"))
+
+# ... твой код ...
+
+token = os.getenv("TELEGRAM_TOKEN")
+if not token:
+    print("ОШИБКА: Переменная TELEGRAM_TOKEN не найдена в Railway! Проверь вкладку Variables.")
+    sys.exit(1) # Бот остановится, если токена нет
+
+BOT = Bot(token=token)
 DP = Dispatcher()
 APP = FastAPI()
 MOLLIE = Client(api_key=os.getenv("MOLLIE_API_KEY"))
