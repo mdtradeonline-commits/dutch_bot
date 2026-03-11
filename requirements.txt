@@ -2,3 +2,5 @@ aiogram
 aiohttp
 beautifulsoup4
 mollie-api-python
+fastapi
+uvicorn
