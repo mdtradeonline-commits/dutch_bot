@@ -1,93 +1,223 @@
-import logging
-import cloudscraper
 import asyncio
-import os
+import sqlite3
+from datetime import datetime, timedelta
+
+import aiohttp
 from bs4 import BeautifulSoup
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import CommandStart
 
-# --- НАСТРОЙКИ ---
-API_TOKEN = os.getenv('8646275203:AAFenGqJIBpvk1DXrbBqDIOPiOILz3Zyllg') # Теперь берем токен из переменных Railway!
-ADMIN_ID = 6999400196
+from mollie.api.client import Client
 
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# ================= CONFIG =================
 
-# --- ПАРСЕРЫ ---
-def get_scraper():
-    return cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+TELEGRAM_TOKEN = "8646275203:AAFenGqJIBpvk1DXrbBqDIOPiOILz3Zyllg"
+MOLLIE_API_KEY = "live_xxxxxxxxx"
 
-def parse_housing(site, city):
-    fmt = city.lower().replace("the ", "").replace(" ", "-")
-    scraper = get_scraper()
-    try:
-        if site == 'Pararius':
-            url = f"https://www.pararius.com/apartments/{fmt}"
-            resp = scraper.get(url, timeout=20)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('h2.listing-search-item__title a')
-            return [f"🏠 {i.text.strip()}\n🔗 https://www.pararius.com{i['href']}" for i in items[:3]]
-        
-        elif site == 'Kamernet':
-            url = f"https://kamernet.nl/en/for-rent/rooms-{fmt}"
-            resp = scraper.get(url, timeout=20)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('.room-item-title')
-            return [f"🎓 {i.text.strip()}" for i in items[:3]]
-            
-        elif site == 'Huurwoningen':
-            url = f"https://www.huurwoningen.nl/in/{fmt}/"
-            resp = scraper.get(url, timeout=20)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('.listing-item')
-            return [f"🏢 {i.text.strip()}" for i in items[:3]]
-    except Exception as e:
-        return [f"Ошибка {site}: {str(e)[:20]}"]
-    return ["Ничего не найдено."]
+CHECK_INTERVAL = 30
+REPLY_DELAY = 900
 
-# --- МЕНЮ ---
-def get_main_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add(KeyboardButton('🏠 Pararius'), KeyboardButton('🎓 Kamernet'), KeyboardButton('🏢 Huurwoningen'))
-    m.add(KeyboardButton('⚙️ Сменить город'), KeyboardButton('🔄 В начало'))
-    return m
+PRICE_2W = "19.90"
+PRICE_4W = "29.90"
 
-user_data = {}
+BOT_USERNAME = "your_bot_name"
 
-# --- ЛОГИКА ---
-@dp.message_handler(commands=['start', 'language'])
-async def start_cmd(message: types.Message):
-    await message.answer("Привет! Выбери город:", reply_markup=get_city_menu())
+# ================= MOLLIE =================
 
-@dp.message_handler(lambda m: '🇳🇱' in m.text or '🎓' in m.text)
-async def set_city(message: types.Message):
-    user_data[message.from_user.id] = message.text.split(" ", 1)[1]
-    await message.answer(f"Город {message.text} зафиксирован.", reply_markup=get_main_menu())
+mollie = Client()
+mollie.set_api_key(MOLLIE_API_KEY)
 
-@dp.message_handler(lambda m: m.text in ['🏠 Pararius', '🎓 Kamernet', '🏢 Huurwoningen'])
-async def search_handler(message: types.Message):
-    city = user_data.get(message.from_user.id, 'Eindhoven')
-    site = message.text.replace('🏠 ', '').replace('🎓 ', '').replace('🏢 ', '')
-    await message.answer(f"🔎 Ищу {site} в {city}...")
-    res = parse_housing(site, city)
-    await message.answer("\n\n".join(res) if res else "Пусто.")
+# ================= DATABASE =================
 
-@dp.message_handler(lambda m: m.text == '⚙️ Сменить город')
-async def change_city(message: types.Message):
-    await message.answer("Выберите город:", reply_markup=get_city_menu())
+conn = sqlite3.connect("bot.db")
+cursor = conn.cursor()
 
-@dp.message_handler(lambda m: m.text == '🔄 В начало')
-async def reset_handler(message: types.Message):
-    await start_cmd(message)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users(
+id INTEGER PRIMARY KEY,
+language TEXT,
+subscription_end TEXT
+)
+""")
 
-def get_city_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    for c in ['🇳🇱 Eindhoven', '🇳🇱 Amsterdam', '🇳🇱 Rotterdam', '🎓 Delft']:
-        m.add(KeyboardButton(c))
-    return m
+conn.commit()
 
-if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(bot.delete_webhook(drop_pending_updates=True))
-    executor.start_polling(dp, skip_updates=True)
+def add_user(user_id):
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO users(id,language) VALUES (?,?)",
+        (user_id, "en")
+    )
+
+    conn.commit()
+
+def update_subscription(user_id, days):
+
+    end = datetime.now() + timedelta(days=days)
+
+    cursor.execute(
+        "UPDATE users SET subscription_end=? WHERE id=?",
+        (end.strftime("%Y-%m-%d %H:%M:%S"), user_id)
+    )
+
+    conn.commit()
+
+# ================= PARSERS =================
+
+async def parse_pararius():
+
+    url = "https://www.pararius.com/apartments/netherlands"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            html = await resp.text()
+
+    soup = BeautifulSoup(html,"html.parser")
+
+    ads = []
+
+    for item in soup.select("a.property-listing-link"):
+
+        title = item.get_text(strip=True)
+
+        link = "https://www.pararius.com" + item["href"]
+
+        ads.append((title,link))
+
+    return ads
+
+
+async def parse_kamernet():
+
+    url = "https://kamernet.nl/en/for-rent/rooms"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            html = await resp.text()
+
+    soup = BeautifulSoup(html,"html.parser")
+
+    ads = []
+
+    for item in soup.select("a.tile"):
+
+        title = item.get_text(strip=True)
+
+        link = "https://kamernet.nl" + item["href"]
+
+        ads.append((title,link))
+
+    return ads
+
+# ================= PAYMENT =================
+
+async def create_payment(plan):
+
+    if plan == "2w":
+        price = PRICE_2W
+    else:
+        price = PRICE_4W
+
+    payment = mollie.payments.create({
+
+        "amount": {
+            "currency": "EUR",
+            "value": price
+        },
+
+        "description": "Housing bot subscription",
+
+        "redirectUrl": f"https://t.me/{BOT_USERNAME}",
+
+        "method": "ideal"
+
+    })
+
+    return payment.checkout_url
+
+# ================= BOT =================
+
+bot = Bot(token=TELEGRAM_TOKEN)
+
+dp = Dispatcher()
+
+@dp.message(CommandStart())
+async def start(message: types.Message):
+
+    add_user(message.from_user.id)
+
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+
+    keyboard.add("2 weeks €19.90")
+
+    keyboard.add("4 weeks €29.90")
+
+    await message.answer(
+
+        "Welcome to Housing Bot\n\nChoose subscription:",
+
+        reply_markup=keyboard
+
+    )
+
+
+@dp.message()
+async def buy(message: types.Message):
+
+    if message.text == "2 weeks €19.90":
+
+        link = await create_payment("2w")
+
+        await message.answer(f"Pay with iDEAL:\n{link}")
+
+    elif message.text == "4 weeks €29.90":
+
+        link = await create_payment("4w")
+
+        await message.answer(f"Pay with iDEAL:\n{link}")
+
+# ================= SCRAPER LOOP =================
+
+async def parser_loop():
+
+    while True:
+
+        ads = []
+
+        ads += await parse_pararius()
+
+        ads += await parse_kamernet()
+
+        users = cursor.execute("SELECT id FROM users").fetchall()
+
+        for ad in ads:
+
+            for user in users:
+
+                try:
+
+                    await bot.send_message(
+
+                        user[0],
+
+                        f"New listing\n\n{ad[0]}\n{ad[1]}"
+
+                    )
+
+                except:
+
+                    pass
+
+        await asyncio.sleep(CHECK_INTERVAL)
+
+# ================= RUN =================
+
+async def main():
+
+    asyncio.create_task(parser_loop())
+
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+
+    asyncio.run(main())
