@@ -1,8 +1,6 @@
 import os
-import asyncio
 import aiohttp
 import sqlite3
-from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -10,16 +8,14 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from mollie.api.client import Client
 from bs4 import BeautifulSoup
 
-# --- CONFIG (Берем из переменных окружения Railway) ---
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MOLLIE_API_KEY = os.getenv("MOLLIE_API_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
-BOT = Bot(token=TELEGRAM_TOKEN)
+# --- Инициализация объектов ---
+# Берем данные из переменных окружения (вкладка Variables в Railway)
+BOT = Bot(token=os.getenv("TELEGRAM_TOKEN"))
 DP = Dispatcher()
 APP = FastAPI()
-MOLLIE = Client(api_key=MOLLIE_API_KEY)
+MOLLIE = Client(api_key=os.getenv("MOLLIE_API_KEY"))
 
-# --- DATABASE (Используем /app/data для Volume) ---
+# Путь к БД на диске (Volume)
 DB_PATH = "/app/data/bot.db"
 
 def init_db():
@@ -30,24 +26,23 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- PARSING ---
-async def parse_data():
-    headers = {"User-Agent": "Mozilla/5.0"}
-    urls = [("https://www.pararius.com/apartments/eindhoven", "a.property-listing-link", "https://www.pararius.com"),
-            ("https://kamernet.nl/en/for-rent/rooms-eindhoven", "a.tile", "https://kamernet.nl")]
+# --- Логика парсинга ---
+async def fetch_housing():
+    urls = [("https://www.pararius.com/apartments/eindhoven", "a.property-listing-link", "https://www.pararius.com")]
     ads = []
-    async with aiohttp.ClientSession(headers=headers) as session:
+    async with aiohttp.ClientSession() as session:
         for url, selector, base in urls:
             try:
-                resp = await session.get(url)
+                resp = await session.get(url, headers={"User-Agent": "Mozilla/5.0"})
                 soup = BeautifulSoup(await resp.text(), "html.parser")
                 for item in soup.select(selector):
                     link = (base + item["href"]) if item["href"].startswith("/") else item["href"]
                     ads.append((item.get_text(strip=True), link))
-            except: continue
+            except Exception as e:
+                print(f"Error parsing: {e}")
     return ads
 
-# --- BOT HANDLERS ---
+# --- Роуты бота ---
 @DP.message(CommandStart())
 async def start(message: types.Message):
     conn = sqlite3.connect(DB_PATH)
@@ -58,9 +53,10 @@ async def start(message: types.Message):
     builder = ReplyKeyboardBuilder()
     builder.button(text="2 weeks - €19.90")
     builder.button(text="4 weeks - €29.90")
-    await message.answer("Welcome! Select a plan:", reply_markup=builder.as_markup(resize_keyboard=True))
+    await message.answer("Welcome to Eindhoven Housing Bot! Choose your plan:", 
+                         reply_markup=builder.as_markup(resize_keyboard=True))
 
-# --- WEBHOOK & STARTUP ---
+# --- Вебхуки ---
 @APP.post("/webhook")
 async def handle_webhook(req: Request):
     data = await req.json()
@@ -70,7 +66,8 @@ async def handle_webhook(req: Request):
 @APP.on_event("startup")
 async def on_startup():
     init_db()
-    await BOT.set_webhook(f"{WEBHOOK_URL}/webhook")
+    # Убедись, что WEBHOOK_URL прописан в переменных Railway
+    await BOT.set_webhook(f"{os.getenv('WEBHOOK_URL')}/webhook")
 
 if __name__ == "__main__":
     import uvicorn
