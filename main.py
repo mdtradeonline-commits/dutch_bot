@@ -1,4 +1,3 @@
-
 import asyncio
 import aiosqlite
 import aiohttp
@@ -16,10 +15,10 @@ import os
 
 # ================= CONFIG =================
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MOLLIE_API_KEY = os.getenv("MOLLIE_API_KEY")
-BOT_USERNAME   = os.getenv("BOT_USERNAME")
-RAILWAY_URL    = os.getenv("RAILWAY_URL")
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+MOLLIE_API_KEY = os.environ["MOLLIE_API_KEY"]
+BOT_USERNAME   = os.environ["BOT_USERNAME"]
+RAILWAY_URL    = os.environ["RAILWAY_URL"]
 
 STANDARD_DELAY = 900   # 15 минут задержки для Стандарт (в секундах)
 CHECK_INTERVAL = 300   # проверка каждые 5 минут
@@ -222,7 +221,8 @@ CITIES = [
 # ================= MOLLIE =================
 
 mollie = Client()
-mollie.set_api_key(MOLLIE_API_KEY)
+if MOLLIE_API_KEY:
+    mollie.set_api_key(MOLLIE_API_KEY)
 
 # ================= БАЗА ДАННЫХ =================
 
