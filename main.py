@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ================= CONFIG =================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = "8646275203:AAFenGqJIBpvk1DXrbBqDIOPiOILz3Zyllg"
 MOLLIE_API_KEY = os.getenv("MOLLIE_API_KEY")
 BOT_USERNAME   = os.getenv("BOT_USERNAME")
 RAILWAY_URL    = os.getenv("RAILWAY_URL")
